@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: Spend Postgres
+    uid: spend-pg
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    isDefault: true
+    jsonData:
+      database: spend
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: grafana_ro

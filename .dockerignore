@@ -1,0 +1,5 @@
+.env
+.git
+.probe/
+**/__pycache__/
+*.log
