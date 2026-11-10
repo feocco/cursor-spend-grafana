@@ -2,48 +2,18 @@
 
 This page explains which Cursor API calls tie review spend to a repo or a person, and what the dashboard does with them. It covers Bugbot and the security reviewer, one of Cursor's managed security agents.
 
-| | Spend by repo | Spend by PR author or pusher |
+| | Spend by repo | Spend by PR author |
 | --- | --- | --- |
-| Bugbot | Yes, from the Analytics API | No |
-| Security reviewer | Not from the API today. One agent per repo is a workaround. | No |
+| Bugbot | Yes, from usage events | Yes, from usage events, as a Git host login |
+| Security reviewer | No. It can only be totaled. | No. It can only be totaled. |
 
-Every command below authenticates with HTTP Basic auth: the API key is the user name and the password is empty. Keep keys in environment variables and out of shell history, logs, and tickets. Analytics API endpoints and service accounts may need an Enterprise plan.
+Every command below authenticates with HTTP Basic auth: the API key is the user name and the password is empty. Both commands worked as written with a team service account API key in place of `$CURSOR_ADMIN_API_KEY`. Keep keys in environment variables and out of shell history, logs, and tickets. Whether your team can use the Analytics API and service accounts depends on its plan.
 
-## Bugbot: spend by repo
+## Bugbot
 
-The "Bugbot reviews by repo (Analytics API)" panel groups Bugbot reviews by repo. Its data comes from one call, which takes up to 30 days per request:
+### Spend by repo and by PR author
 
-```bash
-curl -sS -u "$CURSOR_ADMIN_API_KEY:" \
-  "https://api.cursor.com/analytics/team/bugbot-reviews?startDate=2026-11-01&endDate=2026-11-07&page=1&pageSize=250"
-```
-
-Each review names its repo and PR. The sample below has fake values and shows only the fields this project reads. Real responses can include more.
-
-```json
-{
-  "data": [
-    {
-      "request_id": "rv-00000000-0000-0000-0000-000000000001",
-      "timestamp": "2026-11-02T15:04:05.000Z",
-      "repo": "github.com/example-org/example-repo",
-      "pr_number": 123,
-      "dry_run": false,
-      "billed": true,
-      "cost_cents": 40
-    }
-  ],
-  "pagination": { "hasNextPage": false }
-}
-```
-
-`cost_cents` is the list cost of the review. Only reviews with `billed: true` reach the invoice. On plans that include Bugbot, Bugbot usage events are charged $0, so the per-repo cost comes from this endpoint rather than from usage events.
-
-## Security reviewer: spend by agent, not yet by repo
-
-The security reviewer runs on Cursor's Automations platform as a cloud agent. Its usage is billed to the team's usage pool, and it runs as a service account the team shares. Its spend therefore shows up in usage events under that service account, not under the person who opened or pushed the PR.
-
-The dashboard reads usage events from this call. Timestamps are epoch milliseconds and both bounds are inclusive:
+Bugbot spend lives in usage events, which the dashboard reads from this call. Timestamps are epoch milliseconds and both bounds are inclusive:
 
 ```bash
 curl -sS -u "$CURSOR_ADMIN_API_KEY:" -X POST "https://api.cursor.com/teams/filtered-usage-events" \
@@ -51,56 +21,108 @@ curl -sS -u "$CURSOR_ADMIN_API_KEY:" -X POST "https://api.cursor.com/teams/filte
   -d '{"startDate": 1793491200000, "endDate": 1794095999999, "page": 1, "pageSize": 1000}'
 ```
 
-Events from Cursor-managed automations carry `automationManagedType`, along with `automationId` and `cloudAgentId`. The sample below has fake values, and the `automationManagedType` value is illustrative, so check the value your own events return.
+Bugbot events have `model` set to `github_bugbot` and carry the repo, the PR number, the PR author, and the charge. The sample below has fake values and shows only the fields this page discusses. Real events include more.
 
 ```json
 {
   "usageEvents": [
     {
       "timestamp": "1793548800000",
-      "serviceAccountId": "sa_00000000",
-      "serviceAccountName": "Example Automations Account",
-      "cloudAgentId": "bc-00000000-0000-0000-0000-000000000001",
-      "automationId": "00000000-0000-0000-0000-000000000002",
-      "automationManagedType": "SECURITY_REVIEWER",
-      "model": "example-model",
+      "usageEventId": "ue_00000000",
+      "model": "github_bugbot",
       "kind": "Usage-based",
-      "isHeadless": true,
-      "chargedCents": 123.45
+      "serviceAccountId": "sa_00000001",
+      "serviceAccountName": "Example Bugbot Account",
+      "repo": "github.example.com/example-org/example-repo",
+      "prNumber": 123,
+      "prAuthor": "example-author",
+      "chargedCents": 12.34
     }
   ],
   "totalUsageEventsCount": 1,
-  "pagination": { "currentPage": 1, "hasNextPage": false }
+  "pagination": { "numPages": 1, "currentPage": 1, "pageSize": 1000, "hasNextPage": false, "hasPreviousPage": false }
 }
 ```
 
-On the dashboard:
+- `repo` is `<git host>/<org>/<repo>`. The host is `github.com` or your GitHub Enterprise host.
+- `prAuthor` is the PR author's Git host login, not an email, so it doesn't match Cursor members without your own login-to-email map. Bot accounts appear too.
+- Bugbot events are billed to a Bugbot service account and have no `userEmail`, so they count toward "Service account spend" and not toward any person.
 
-- "Spend by category" and "Daily spend by category" give each `automationManagedType` its own slice, such as "Managed: security reviewer". Events that also carry a `cloudAgentId` still count toward "Cloud agent spend".
-- "Spend per automation" splits that spend by `automationId`, so each security agent you created gets its own row. The API returns the automation's UUID, not its name, so match the UUIDs to your agents yourself.
+The "Bugbot spend by repo" and "Bugbot spend by PR author" panels group these events by `repo` and by `prAuthor` and sum `chargedCents`.
 
-### Why there is no repo or user column
+### Review activity by repo
 
-The documented usage event fields include no repo, PR, or PR author. Cursor's public APIs offer no security review endpoint like `bugbot-reviews`, and no Automations API that returns an agent's repo scope.
-
-The security reviewer runs as the team's service account, so spend can't be split by the person who opened or pushed the PR. That person shows up in your Git host's data, not in Cursor's usage data.
-
-### Workaround: one security agent per repo
-
-To get spend by repo today, create a separate security reviewer agent for each repo and scope its trigger to that one repo. Each agent then has its own `automationId`, and "Spend per automation" becomes spend per repo once you map each UUID to its repo. This mapping stays correct only while each agent covers exactly one repo.
-
-### Unverified: looking up the cloud agent
-
-The Cloud Agents API returns an agent's repos, and a run's pushed branches and PR URLs. It is documented to accept a user API key or a service account API key, and the Admin API key isn't listed:
+`/analytics/team/bugbot-reviews` lists each review Bugbot posted. It takes `YYYY-MM-DD` dates, both inclusive, up to 30 days per request:
 
 ```bash
-curl -sS -u "$CURSOR_API_KEY:" "https://api.cursor.com/v1/agents/bc-00000000-0000-0000-0000-000000000001"
+curl -sS -u "$CURSOR_ADMIN_API_KEY:" \
+  "https://api.cursor.com/analytics/team/bugbot-reviews?startDate=2026-11-01&endDate=2026-11-07&page=1&pageSize=250"
 ```
 
-The documented response includes `repos` (a list of `{ "url": "https://github.com/example-org/example-repo", "startingRef": "main" }`) and `latestRunId`. `GET /v1/agents/{id}/runs/{runId}` adds `git.branches[]` with `repoUrl` and `prUrl`. We haven't confirmed that this works for security reviewer agents, for three reasons:
+Use it for activity, not spend. Its `cost_cents` and `billed` fields came back `null` on every review in our test. Its `repo` and `pr_number` use the same format as the usage events, so the two join on repo and PR number. The "Reviews" column in "Bugbot spend by repo" counts these reviews. The sample below has fake values:
 
-- They run as the team's managed service account, and these endpoints are documented to return the caller's own agents.
-- A reviewer that only comments on a PR pushes no branch, so `git.branches` is likely empty.
-- If the security agents page shows no codebase for a run, expect the agent record to have no repo either.
+```json
+{
+  "data": [
+    {
+      "request_id": "00000000-0000-0000-0000-000000000001",
+      "timestamp": "2026-11-02T15:04:05.000Z",
+      "repo": "github.example.com/example-org/example-repo",
+      "repo_node_id": "R_example",
+      "pr_author": "example-author",
+      "pr_number": 123,
+      "commit_sha": "0000000000000000000000000000000000000000",
+      "bugs_found": 1,
+      "cost_cents": null,
+      "billed": null,
+      "dry_run": false,
+      "publication_status": "posted",
+      "bugs": [
+        {
+          "comment_id": "example-comment",
+          "title": "Example finding",
+          "description": "Example description",
+          "severity": "medium",
+          "resolution_status": "open",
+          "locations": [{ "file": "src/example.ts", "start_line": 1, "end_line": 2 }]
+        }
+      ]
+    }
+  ],
+  "pagination": { "page": 1, "pageSize": 250, "totalItems": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false },
+  "params": { "metric": "bugbot-reviews", "teamId": 0, "startDate": "2026-11-01", "endDate": "2026-11-07", "page": 1, "pageSize": 250 }
+}
+```
 
-Try it against one `cloudAgentId` from your usage events before building on it.
+## Security reviewer: total only
+
+Security reviewer spend comes from the same `filtered-usage-events` call shown in the Bugbot section. Its events have `automationManagedType` set to `SECURITY_REVIEWER` and are billed to the team's security service account. The sample below has fake values and shows every field these events carried in our test:
+
+```json
+{
+  "timestamp": "1793548800000",
+  "usageEventId": "ue_00000002",
+  "model": "",
+  "kind": "Included in Business",
+  "maxMode": false,
+  "isTokenBasedCall": true,
+  "isChargeable": true,
+  "isHeadless": false,
+  "requestsCosts": 1.0,
+  "cursorTokenFee": 0,
+  "tokenUsage": { "inputTokens": 0, "outputTokens": 0, "cacheReadTokens": 0, "cacheWriteTokens": 0, "totalCents": 0.0 },
+  "serviceAccountId": "sa_00000002",
+  "serviceAccountName": "Example Security Account",
+  "automationManagedType": "SECURITY_REVIEWER",
+  "conversationId": "example-conversation-0001",
+  "chargedCents": 23.45
+}
+```
+
+These events have no `cloudAgentId`, `automationId`, `repo`, `prNumber`, `prAuthor`, or `userEmail`. Cursor's data can't tie security reviewer spend to a repo or to the person who opened or pushed the PR. It can only be totaled. Each event's `conversationId` identifies a run, but no public Cursor API documents a way to look up its repo or PR.
+
+On the dashboard, security reviewer spend appears as "Managed: security reviewer" in "Spend by category" and "Daily spend by category", and under its service account in "Spend per service account". It is not in "Cloud agent spend", "Spend per automation", or "Top cloud agent runs", because those need a `cloudAgentId` or an `automationId`. Events with `automationManagedType` set to `CHANGE_MONITOR` also lack those fields and get their own slice.
+
+Creating one security reviewer agent per repo doesn't give spend by repo either. The events don't carry an `automationId`, so separate agents can't be told apart in usage data.
+
+The Cloud Agents API doesn't help. `GET /v1/agents/{id}` needs a `cloudAgentId`, which these events lack. In our test, the same key got `404 agent_not_found` for cloud agents that people's automations had launched, and listing `/v1/agents` returned nothing, which suggests the endpoint only returns the caller's own agents.

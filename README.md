@@ -41,7 +41,7 @@ Each pass does these steps in order. Every step is safe to re-run.
 1. `GET /teams/members` replaces the member list.
 2. `GET /teams/directory-groups` and each group's members replace the team groups. An empty list is fine.
 3. `POST /teams/filtered-usage-events` reads usage events from the watermark minus 2 hours up to now, in 6-hour chunks.
-4. `GET /analytics/team/bugbot-reviews` reads Bugbot reviews from the day before the last pass through today.
+4. `GET /analytics/team/bugbot-reviews` reads Bugbot reviews from the day before the last pass through today. They give review counts per repo. Bugbot spend comes from the usage events.
 
 The watermark is the end of the last chunk the collector read completely. A chunk is complete when its de-duplicated event count equals the API's `totalUsageEventsCount`. The watermark never moves past an incomplete chunk, so a collector that was down for days catches up on its next pass. The 2-hour overlap picks up charges that grew after the last read.
 
@@ -64,8 +64,8 @@ The collector spaces its calls at 75% of the API rate limits, for example 45 usa
 
 ## Know the limits
 
-- Usage events don't say which repo a cloud agent or IDE request worked on, so spend can't be split by repo. Bugbot usage events are charged $0 on plans that include Bugbot. The "Bugbot reviews by repo" panel shows reviews and list cost per repo from the Analytics API.
-- Cursor-managed security agents, such as the security reviewer, get their own slice in "Spend by category", keyed on `automationManagedType`. Their spend can't yet be split by repo or by the person who opened the PR. See [docs/attribution.md](docs/attribution.md) for the API calls behind both and a workaround.
+- Usage events don't say which repo a cloud agent or IDE request worked on, so that spend can't be split by repo. Bugbot usage events do carry the repo, PR number, and PR author, so "Bugbot spend by repo" and "Bugbot spend by PR author" sum their charges. The PR author is a Git host login, not an email.
+- Cursor-managed automations, such as the security reviewer, get their own slice in "Spend by category", keyed on `automationManagedType`. Security reviewer events carry no repo, PR, cloud agent, automation, or person, so its spend can only be totaled. See [docs/attribution.md](docs/attribution.md) for the API calls and response fields behind both.
 - The API returns automation IDs, not names.
 - Team groups use today's membership. Someone in two groups counts in both.
 - To add a manager rollup from an org chart CSV, see [docs/manager-rollup.md](docs/manager-rollup.md).
