@@ -27,7 +27,8 @@ START and END are inclusive dates for every command.
 ## Invariants worth checking
 
 - The slices of "Spend by category" sum to "Total spend".
-- "Cloud agent spend" equals the sum of the three "Cloud agent: ..." slices in "Spend by category".
+- "Cloud agent spend" equals the sum of the three "Cloud agent: ..." slices in "Spend by category" plus the "Managed: ..." events that carry a `cloudAgentId`. Security reviewer events carry none, so they sit only in their own "Managed: security reviewer" slice.
+- "Bugbot spend by repo" and "Bugbot spend by PR author" each sum to the "Bugbot" slice of "Spend by category".
 - `members` has one row per email. Panels join it by email.
 - `select count(*) from usage_events where raw->>'serviceAccountId' = 'null' and service_account_id is not null` returns 0.
 

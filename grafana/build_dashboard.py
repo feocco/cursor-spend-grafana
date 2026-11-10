@@ -10,13 +10,20 @@ HUMAN = "service_account_id IS NULL"
 TF = "$__timeFilter(ts)"
 # Postgres runs with timezone=$TIMEZONE, so this is local midnight, the same zone as the time picker.
 DAY = "date_trunc('day', ts)"
-CATEGORY = """CASE
+# Cursor-managed automations (security reviewer, change monitor) are checked first so a managed event that
+# carries a cloudAgentId still lands in its own slice rather than in "Cloud agent: automation".
+MANAGED_TYPE = "nullif(nullif(raw->>'automationManagedType', 'null'), '')"
+BUGBOT = "(model = 'github_bugbot' OR service_account_name = 'bugbot')"
+# Bugbot usage events carry the PR author's Git host login, not an email, so it can't join members.
+PR_AUTHOR = "nullif(nullif(raw->>'prAuthor', 'null'), '')"
+PR_NUMBER = "nullif(nullif(raw->>'prNumber', 'null'), '')"
+CATEGORY = f"""CASE
+    WHEN {MANAGED_TYPE} IS NOT NULL THEN 'Managed: ' || lower(replace({MANAGED_TYPE}, '_', ' '))
     WHEN cloud_agent_id IS NOT NULL AND automation_id IS NOT NULL THEN 'Cloud agent: automation'
     WHEN cloud_agent_id IS NOT NULL AND service_account_id IS NOT NULL THEN 'Cloud agent: service account'
     WHEN cloud_agent_id IS NOT NULL THEN 'Cloud agent: person'
-    WHEN model = 'github_bugbot' OR service_account_name = 'bugbot' THEN 'Bugbot'
+    WHEN {BUGBOT} THEN 'Bugbot'
     WHEN model LIKE 'grok-bot-%' THEN 'Grokbot'
-    WHEN raw->>'automationManagedType' IS NOT NULL THEN 'Managed: ' || lower(replace(raw->>'automationManagedType', '_', ' '))
     WHEN service_account_id IS NOT NULL THEN 'Service account: non-cloud-agent'
     ELSE 'Local agent / IDE / CLI'
   END"""
@@ -91,9 +98,9 @@ def table(title, query, w, h, description="", sort="USD"):
 add("text", "", 24, 3, [], options={"mode": "markdown", "content": f"**{DISCLAIMER.replace('. ', '.** ', 1)}"})
 
 stat("Total spend", f"SELECT sum(charged_cents) / 100 AS usd FROM usage_events WHERE {TF}",
-     "Sum of chargedCents over all usage events in range. Usage included in the plan, such as Bugbot when the plan includes it, is charged $0 and counts as $0 here.")
+     "Sum of chargedCents over all usage events in range. Usage the API reports as charged $0 counts as $0 here.")
 stat("Cloud agent spend", f"SELECT sum(charged_cents) / 100 FROM usage_events WHERE {TF} AND cloud_agent_id IS NOT NULL",
-     "Events carrying a cloudAgentId (includes automations, which run as cloud agents).")
+     "Events carrying a cloudAgentId, including those launched by automations. Security reviewer events carry no cloudAgentId, so they are not counted here.")
 stat("Service account spend", f"SELECT coalesce(sum(charged_cents), 0) / 100 FROM usage_events WHERE {TF} AND service_account_id IS NOT NULL")
 stat("Events", f"SELECT count(*) FROM usage_events WHERE {TF}", unit="short")
 stat("Data age (min)",
@@ -135,20 +142,31 @@ SELECT automation_id AS "Automation", coalesce(max(service_account_name), 'runs 
        round(sum(charged_cents) / 100, 2) AS "USD", count(DISTINCT cloud_agent_id) AS "Cloud agent runs", count(*) AS "Events"
 FROM usage_events WHERE {TF} AND automation_id IS NOT NULL
 GROUP BY 1 ORDER BY 3 DESC""", 12, 9,
-      "The API exposes automation UUIDs only. Service-account automations get a dedicated service account, so its name identifies the automation.")
+      "The API exposes automation UUIDs only. Service-account automations get a dedicated service account, so its name identifies the automation. "
+      "Security reviewer events carry no automationId, so they don't appear here.")
 
-table("Bugbot reviews by repo (Analytics API)", f"""
-SELECT repo AS "Repo", count(*) AS "Reviews", count(*) FILTER (WHERE billed) AS "Billed reviews",
-       round(coalesce(sum(cost_cents), 0) / 100, 2) AS "Cost USD", round(coalesce(sum(cost_cents) FILTER (WHERE billed), 0) / 100, 2) AS "Billed USD"
-FROM bugbot_reviews WHERE {TF}
+table("Bugbot spend by repo", f"""
+SELECT coalesce(e.repo, '(no repo)') AS "Repo", round(sum(e.charged_cents) / 100, 2) AS "USD",
+       count(DISTINCT {PR_NUMBER}) AS "PRs", count(*) AS "Events", coalesce(max(r.reviews), 0) AS "Reviews"
+FROM usage_events e
+LEFT JOIN (SELECT repo, count(*) AS reviews FROM bugbot_reviews WHERE {TF} GROUP BY 1) r ON r.repo = e.repo
+WHERE {TF.replace('ts', 'e.ts')} AND {BUGBOT}
 GROUP BY 1 ORDER BY 2 DESC""", 12, 9,
-      "From /analytics/team/bugbot-reviews. cost_cents is list cost; only billed reviews reach the invoice.", sort="Reviews")
+      "Spend from Bugbot usage events, which carry repo, prNumber, and chargedCents. Reviews counts posted reviews from /analytics/team/bugbot-reviews; "
+      "that endpoint's cost_cents and billed fields can be null, so spend never comes from it.")
 
-add("piechart", "Spend by category", 12, 9,
+table("Bugbot spend by PR author", f"""
+SELECT coalesce({PR_AUTHOR}, '(unknown)') AS "PR author", round(sum(charged_cents) / 100, 2) AS "USD",
+       count(DISTINCT repo || '#' || {PR_NUMBER}) AS "PRs", count(DISTINCT repo) AS "Repos", count(*) AS "Events"
+FROM usage_events WHERE {TF} AND {BUGBOT}
+GROUP BY 1 ORDER BY 2 DESC""", 12, 9,
+      "From the prAuthor field on Bugbot usage events: the PR author's Git host login, not an email, so it isn't matched to Cursor members.")
+
+add("piechart", "Spend by category", 12, 10,
     [sql(f"SELECT $__timeFrom()::timestamptz AS time, {CATEGORY} AS metric, sum(charged_cents) / 100 AS usd FROM usage_events WHERE {TF} GROUP BY 2 ORDER BY 3 DESC", fmt="time_series")],
-    "All spend in range, each event in the first category it matches: a cloud agent run by an automation, by a service account, "
-    "or by a person; Bugbot; Grokbot; a Cursor-managed automation outside a cloud agent, such as the vulnerability scanner; "
-    "any other service account use; then a person's own requests in a local agent, the IDE, or the CLI.",
+    "All spend in range, each event in the first category it matches: a Cursor-managed automation, such as the security reviewer "
+    "or the change monitor, keyed on automationManagedType; a cloud agent run by an automation, by a service account, "
+    "or by a person; Bugbot; Grokbot; any other service account use; then a person's own requests in a local agent, the IDE, or the CLI.",
     fieldConfig=usd(CATEGORY_COLORS),
     options={"pieType": "donut", "legend": {"showLegend": True, "displayMode": "table", "placement": "right", "values": ["value", "percent"]},
              "reduceOptions": {"calcs": ["sum"], "fields": "", "values": False}})
@@ -157,7 +175,7 @@ table("Top cloud agent runs", f"""
 SELECT cloud_agent_id AS "Cloud agent", coalesce(max(service_account_name), max(user_email)) AS "Launched by",
        max(automation_id) AS "Automation", round(sum(charged_cents) / 100, 2) AS "USD", count(*) AS "Events"
 FROM usage_events WHERE {TF} AND cloud_agent_id IS NOT NULL
-GROUP BY 1 ORDER BY 4 DESC LIMIT 50""", 24, 10)
+GROUP BY 1 ORDER BY 4 DESC LIMIT 50""", 12, 10)
 
 table("Collector runs", """
 SELECT started_at AS "Started", job AS "Job", status AS "Status", window_start AS "Window start", window_end AS "Window end",
