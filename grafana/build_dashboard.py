@@ -10,13 +10,16 @@ HUMAN = "service_account_id IS NULL"
 TF = "$__timeFilter(ts)"
 # Postgres runs with timezone=$TIMEZONE, so this is local midnight, the same zone as the time picker.
 DAY = "date_trunc('day', ts)"
-CATEGORY = """CASE
+# Cursor-managed automations (security reviewer, vulnerability scanner) run as cloud agents, so the
+# managed check must come before the cloud agent checks or their spend lands in "Cloud agent: automation".
+MANAGED_TYPE = "nullif(nullif(raw->>'automationManagedType', 'null'), '')"
+CATEGORY = f"""CASE
+    WHEN {MANAGED_TYPE} IS NOT NULL THEN 'Managed: ' || lower(replace({MANAGED_TYPE}, '_', ' '))
     WHEN cloud_agent_id IS NOT NULL AND automation_id IS NOT NULL THEN 'Cloud agent: automation'
     WHEN cloud_agent_id IS NOT NULL AND service_account_id IS NOT NULL THEN 'Cloud agent: service account'
     WHEN cloud_agent_id IS NOT NULL THEN 'Cloud agent: person'
     WHEN model = 'github_bugbot' OR service_account_name = 'bugbot' THEN 'Bugbot'
     WHEN model LIKE 'grok-bot-%' THEN 'Grokbot'
-    WHEN raw->>'automationManagedType' IS NOT NULL THEN 'Managed: ' || lower(replace(raw->>'automationManagedType', '_', ' '))
     WHEN service_account_id IS NOT NULL THEN 'Service account: non-cloud-agent'
     ELSE 'Local agent / IDE / CLI'
   END"""
@@ -93,7 +96,7 @@ add("text", "", 24, 3, [], options={"mode": "markdown", "content": f"**{DISCLAIM
 stat("Total spend", f"SELECT sum(charged_cents) / 100 AS usd FROM usage_events WHERE {TF}",
      "Sum of chargedCents over all usage events in range. Usage included in the plan, such as Bugbot when the plan includes it, is charged $0 and counts as $0 here.")
 stat("Cloud agent spend", f"SELECT sum(charged_cents) / 100 FROM usage_events WHERE {TF} AND cloud_agent_id IS NOT NULL",
-     "Events carrying a cloudAgentId (includes automations, which run as cloud agents).")
+     "Events carrying a cloudAgentId (includes automations and Cursor-managed security agents, which run as cloud agents).")
 stat("Service account spend", f"SELECT coalesce(sum(charged_cents), 0) / 100 FROM usage_events WHERE {TF} AND service_account_id IS NOT NULL")
 stat("Events", f"SELECT count(*) FROM usage_events WHERE {TF}", unit="short")
 stat("Data age (min)",
@@ -146,9 +149,9 @@ GROUP BY 1 ORDER BY 2 DESC""", 12, 9,
 
 add("piechart", "Spend by category", 12, 9,
     [sql(f"SELECT $__timeFrom()::timestamptz AS time, {CATEGORY} AS metric, sum(charged_cents) / 100 AS usd FROM usage_events WHERE {TF} GROUP BY 2 ORDER BY 3 DESC", fmt="time_series")],
-    "All spend in range, each event in the first category it matches: a cloud agent run by an automation, by a service account, "
-    "or by a person; Bugbot; Grokbot; a Cursor-managed automation outside a cloud agent, such as the vulnerability scanner; "
-    "any other service account use; then a person's own requests in a local agent, the IDE, or the CLI.",
+    "All spend in range, each event in the first category it matches: a Cursor-managed automation, such as the security reviewer "
+    "or the vulnerability scanner, keyed on automationManagedType; a cloud agent run by an automation, by a service account, "
+    "or by a person; Bugbot; Grokbot; any other service account use; then a person's own requests in a local agent, the IDE, or the CLI.",
     fieldConfig=usd(CATEGORY_COLORS),
     options={"pieType": "donut", "legend": {"showLegend": True, "displayMode": "table", "placement": "right", "values": ["value", "percent"]},
              "reduceOptions": {"calcs": ["sum"], "fields": "", "values": False}})

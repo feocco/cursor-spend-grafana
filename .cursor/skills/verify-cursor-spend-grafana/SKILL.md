@@ -27,7 +27,7 @@ START and END are inclusive dates for every command.
 ## Invariants worth checking
 
 - The slices of "Spend by category" sum to "Total spend".
-- "Cloud agent spend" equals the sum of the three "Cloud agent: ..." slices in "Spend by category".
+- "Cloud agent spend" equals the sum of the three "Cloud agent: ..." slices in "Spend by category" plus the "Managed: ..." events that carry a `cloudAgentId`. Managed automations such as the security reviewer run as cloud agents but get their own slice.
 - `members` has one row per email. Panels join it by email.
 - `select count(*) from usage_events where raw->>'serviceAccountId' = 'null' and service_account_id is not null` returns 0.
 

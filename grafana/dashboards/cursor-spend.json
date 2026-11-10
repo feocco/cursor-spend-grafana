@@ -84,7 +84,7 @@
       "id": 3,
       "type": "stat",
       "title": "Cloud agent spend",
-      "description": "Events carrying a cloudAgentId (includes automations, which run as cloud agents).",
+      "description": "Events carrying a cloudAgentId (includes automations and Cursor-managed security agents, which run as cloud agents).",
       "gridPos": {
         "x": 5,
         "y": 3,
@@ -289,7 +289,7 @@
           "rawQuery": true,
           "editorMode": "code",
           "format": "time_series",
-          "rawSql": "SELECT date_trunc('day', ts) AS time, CASE\n    WHEN cloud_agent_id IS NOT NULL AND automation_id IS NOT NULL THEN 'Cloud agent: automation'\n    WHEN cloud_agent_id IS NOT NULL AND service_account_id IS NOT NULL THEN 'Cloud agent: service account'\n    WHEN cloud_agent_id IS NOT NULL THEN 'Cloud agent: person'\n    WHEN model = 'github_bugbot' OR service_account_name = 'bugbot' THEN 'Bugbot'\n    WHEN model LIKE 'grok-bot-%' THEN 'Grokbot'\n    WHEN raw->>'automationManagedType' IS NOT NULL THEN 'Managed: ' || lower(replace(raw->>'automationManagedType', '_', ' '))\n    WHEN service_account_id IS NOT NULL THEN 'Service account: non-cloud-agent'\n    ELSE 'Local agent / IDE / CLI'\n  END AS metric, sum(charged_cents) / 100 AS usd FROM usage_events WHERE $__timeFilter(ts) GROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "SELECT date_trunc('day', ts) AS time, CASE\n    WHEN nullif(nullif(raw->>'automationManagedType', 'null'), '') IS NOT NULL THEN 'Managed: ' || lower(replace(nullif(nullif(raw->>'automationManagedType', 'null'), ''), '_', ' '))\n    WHEN cloud_agent_id IS NOT NULL AND automation_id IS NOT NULL THEN 'Cloud agent: automation'\n    WHEN cloud_agent_id IS NOT NULL AND service_account_id IS NOT NULL THEN 'Cloud agent: service account'\n    WHEN cloud_agent_id IS NOT NULL THEN 'Cloud agent: person'\n    WHEN model = 'github_bugbot' OR service_account_name = 'bugbot' THEN 'Bugbot'\n    WHEN model LIKE 'grok-bot-%' THEN 'Grokbot'\n    WHEN service_account_id IS NOT NULL THEN 'Service account: non-cloud-agent'\n    ELSE 'Local agent / IDE / CLI'\n  END AS metric, sum(charged_cents) / 100 AS usd FROM usage_events WHERE $__timeFilter(ts) GROUP BY 1, 2 ORDER BY 1"
         }
       ],
       "fieldConfig": {
@@ -787,7 +787,7 @@
       "id": 13,
       "type": "piechart",
       "title": "Spend by category",
-      "description": "All spend in range, each event in the first category it matches: a cloud agent run by an automation, by a service account, or by a person; Bugbot; Grokbot; a Cursor-managed automation outside a cloud agent, such as the vulnerability scanner; any other service account use; then a person's own requests in a local agent, the IDE, or the CLI.",
+      "description": "All spend in range, each event in the first category it matches: a Cursor-managed automation, such as the security reviewer or the vulnerability scanner, keyed on automationManagedType; a cloud agent run by an automation, by a service account, or by a person; Bugbot; Grokbot; any other service account use; then a person's own requests in a local agent, the IDE, or the CLI.",
       "gridPos": {
         "x": 12,
         "y": 36,
@@ -804,7 +804,7 @@
           "rawQuery": true,
           "editorMode": "code",
           "format": "time_series",
-          "rawSql": "SELECT $__timeFrom()::timestamptz AS time, CASE\n    WHEN cloud_agent_id IS NOT NULL AND automation_id IS NOT NULL THEN 'Cloud agent: automation'\n    WHEN cloud_agent_id IS NOT NULL AND service_account_id IS NOT NULL THEN 'Cloud agent: service account'\n    WHEN cloud_agent_id IS NOT NULL THEN 'Cloud agent: person'\n    WHEN model = 'github_bugbot' OR service_account_name = 'bugbot' THEN 'Bugbot'\n    WHEN model LIKE 'grok-bot-%' THEN 'Grokbot'\n    WHEN raw->>'automationManagedType' IS NOT NULL THEN 'Managed: ' || lower(replace(raw->>'automationManagedType', '_', ' '))\n    WHEN service_account_id IS NOT NULL THEN 'Service account: non-cloud-agent'\n    ELSE 'Local agent / IDE / CLI'\n  END AS metric, sum(charged_cents) / 100 AS usd FROM usage_events WHERE $__timeFilter(ts) GROUP BY 2 ORDER BY 3 DESC"
+          "rawSql": "SELECT $__timeFrom()::timestamptz AS time, CASE\n    WHEN nullif(nullif(raw->>'automationManagedType', 'null'), '') IS NOT NULL THEN 'Managed: ' || lower(replace(nullif(nullif(raw->>'automationManagedType', 'null'), ''), '_', ' '))\n    WHEN cloud_agent_id IS NOT NULL AND automation_id IS NOT NULL THEN 'Cloud agent: automation'\n    WHEN cloud_agent_id IS NOT NULL AND service_account_id IS NOT NULL THEN 'Cloud agent: service account'\n    WHEN cloud_agent_id IS NOT NULL THEN 'Cloud agent: person'\n    WHEN model = 'github_bugbot' OR service_account_name = 'bugbot' THEN 'Bugbot'\n    WHEN model LIKE 'grok-bot-%' THEN 'Grokbot'\n    WHEN service_account_id IS NOT NULL THEN 'Service account: non-cloud-agent'\n    ELSE 'Local agent / IDE / CLI'\n  END AS metric, sum(charged_cents) / 100 AS usd FROM usage_events WHERE $__timeFilter(ts) GROUP BY 2 ORDER BY 3 DESC"
         }
       ],
       "fieldConfig": {

@@ -65,6 +65,7 @@ The collector spaces its calls at 75% of the API rate limits, for example 45 usa
 ## Know the limits
 
 - Usage events don't say which repo a cloud agent or IDE request worked on, so spend can't be split by repo. Bugbot usage events are charged $0 on plans that include Bugbot. The "Bugbot reviews by repo" panel shows reviews and list cost per repo from the Analytics API.
+- Cursor-managed security agents, such as the security reviewer, get their own slice in "Spend by category", keyed on `automationManagedType`. Their spend can't yet be split by repo or by the person who opened the PR. See [docs/attribution.md](docs/attribution.md) for the API calls behind both and a workaround.
 - The API returns automation IDs, not names.
 - Team groups use today's membership. Someone in two groups counts in both.
 - To add a manager rollup from an org chart CSV, see [docs/manager-rollup.md](docs/manager-rollup.md).
