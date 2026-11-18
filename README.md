@@ -6,6 +6,14 @@ A Grafana dashboard of Cursor team spend: per person, per team group, per servic
 
 You need Docker and one Team Admin API key.
 
+## Screenshots
+
+These screenshots use synthetic data: 30 days for six made-up people at `example.com`, made-up `example-org` repos, and fake IDs. They show no real team's spend. [docs/attribution.md](docs/attribution.md) has close-ups of the Bugbot and category panels.
+
+![The Cursor spend dashboard over 30 days of synthetic data](docs/images/dashboard-overview.png)
+
+![Spend per person, from synthetic data](docs/images/spend-per-person.png)
+
 ## Run it
 
 1. Copy the example settings and fill in the two required values.
@@ -81,6 +89,8 @@ The collector spaces its calls at 75% of the API rate limits, for example 45 usa
 	```
 
 	`python3 dev/check_panels.py START END` runs every panel's query through Grafana and fails if any panel errors.
+
+- `dev/seed_demo.py DSN START END` loads the synthetic data behind the screenshots through the collector's own write functions. It replaces members and team groups, so point it only at a scratch database.
 
 ## License
 
