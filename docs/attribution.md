@@ -7,6 +7,8 @@ This page explains which Cursor API calls tie review spend to a repo or a person
 | Bugbot | Yes, from usage events | Yes, from usage events, as a Git host login |
 | Security reviewer | No. It can only be totaled. | No. It can only be totaled. |
 
+The screenshots on this page use synthetic data: made-up people, repos, logins, and IDs.
+
 Every command below authenticates with HTTP Basic auth: the API key is the user name and the password is empty. Both commands worked as written with a team service account API key in place of `$CURSOR_ADMIN_API_KEY`. Keep keys in environment variables and out of shell history, logs, and tickets. Whether your team can use the Analytics API and service accounts depends on its plan.
 
 ## Bugbot
@@ -49,6 +51,10 @@ Bugbot events have `model` set to `github_bugbot` and carry the repo, the PR num
 - Bugbot events are billed to a Bugbot service account and have no `userEmail`, so they count toward "Service account spend" and not toward any person.
 
 The "Bugbot spend by repo" and "Bugbot spend by PR author" panels group these events by `repo` and by `prAuthor` and sum `chargedCents`.
+
+![Bugbot spend by repo, from synthetic data](images/bugbot-spend-by-repo.png)
+
+![Bugbot spend by PR author, from synthetic data](images/bugbot-spend-by-pr-author.png)
 
 ### Review activity by repo
 
@@ -122,6 +128,8 @@ Security reviewer spend comes from the same `filtered-usage-events` call shown i
 These events have no `cloudAgentId`, `automationId`, `repo`, `prNumber`, `prAuthor`, or `userEmail`. Cursor's data can't tie security reviewer spend to a repo or to the person who opened or pushed the PR. It can only be totaled. Each event's `conversationId` identifies a run, but no public Cursor API documents a way to look up its repo or PR.
 
 On the dashboard, security reviewer spend appears as "Managed: security reviewer" in "Spend by category" and "Daily spend by category", and under its service account in "Spend per service account". It is not in "Cloud agent spend", "Spend per automation", or "Top cloud agent runs", because those need a `cloudAgentId` or an `automationId`. Events with `automationManagedType` set to `CHANGE_MONITOR` also lack those fields and get their own slice.
+
+![Spend by category, from synthetic data, with the security reviewer and change monitor slices](images/spend-by-category.png)
 
 Creating one security reviewer agent per repo doesn't give spend by repo either. The events don't carry an `automationId`, so separate agents can't be told apart in usage data.
 
